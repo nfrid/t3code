@@ -529,7 +529,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       const personal = yield* createBuildConfig(
         "mac",
         "dmg",
-        "0.0.34",
+        "0.0.34-personal.1",
         false,
         false,
         undefined,
@@ -548,6 +548,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         ),
       );
       const personalMac = personal.mac as Record<string, unknown>;
+      assert.isFalse(personalMac.detectUpdateChannel);
       assert.equal(personalMac.identity, "T3 Code Personal");
       assert.match(personalMac.sign as string, /scripts[\\/]sign-macos-personal\.ts$/);
       assert.isFalse(personalMac.notarize);

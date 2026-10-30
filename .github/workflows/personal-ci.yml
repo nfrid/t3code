@@ -1,0 +1,53 @@
+name: Personal CI
+
+on:
+  pull_request:
+    branches: [personal]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: personal-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Personal checks
+    if: github.repository == 'nfrid/t3code'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - uses: ./.github/actions/setup-ci-deps
+
+      - name: Check changed files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { execFileSync, spawnSync } from "node:child_process";
+          const base = process.env.BASE_SHA || "HEAD^";
+          const files = execFileSync("git", ["diff", "--name-only", "--diff-filter=ACMR", "-z", base, "HEAD"], { encoding: "utf8" }).split("\0").filter(Boolean);
+          for (const args of [["fmt", "--check"], ["lint"]]) {
+            if (!files.length) break;
+            const result = spawnSync("vp", [...args, "--no-error-on-unmatched-pattern", ...files], { stdio: "inherit" });
+            if (result.status !== 0) process.exit(result.status ?? 1);
+          }
+          NODE
+
+      - name: Typecheck desktop, web, and release tooling
+        run: vp run --filter @t3tools/desktop --filter @t3tools/web --filter @t3tools/scripts typecheck
+
+      - name: Test personal release and highlighting
+        run: >-
+          vp test run scripts/personal-release.test.ts scripts/build-desktop-artifact.test.ts
+          apps/web/src/lib/syntaxHighlighting.test.ts apps/web/src/lib/diffRendering.test.ts

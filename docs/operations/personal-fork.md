@@ -1,9 +1,37 @@
 # Personal macOS releases
 
-This fork builds Apple Silicon releases from `personal` with the **Personal macOS release**
-GitHub Actions workflow. Each push builds a new version and publishes its DMG, updater ZIP,
-and update metadata to `nfrid/t3code`. The workflow can also be run manually.
-It does not publish npm packages or deploy the upstream websites.
+This fork publishes Apple Silicon builds to GitHub Releases for the installed app's update controls.
+Use the project action **Build & Publish Personal Release** in T3 Code, or build and publish
+from a clean `personal` checkout:
+
+```sh
+vp run personal:release
+```
+
+The checkout must match `origin/personal`. The command fetches that branch to check it but does
+not pull, switch branches, create a worktree, or reinstall dependencies. Run `vp i` yourself if
+dependencies have not been installed for the current lockfile. It reuses build caches and writes
+artifacts to `~/Downloads/T3Code-Personal/release-<version>`.
+
+The command imports the existing signing identity into a temporary keychain, builds the DMG and
+updater ZIP, checks the bundle identity, strict signature, pinned certificate, update feed, and
+artifact hashes, then uploads a draft release and publishes it after all uploads finish. It does
+not launch, replace, or restart the installed app. A failed upload can leave a draft for inspection;
+its version stays reserved. Delete that draft only if you intend to reuse the version.
+
+Only one local release can run per checkout. Its PID is recorded in
+`.t3/personal-release.lock/pid`. If a process is forcibly killed, inspect that PID and any build
+manifest changes before removing the stale lock. Ordinary failures restore the keychain search
+list and remove the temporary keychain.
+
+The **Personal macOS release** Actions workflow is a manual fallback on `personal`; pushes no
+longer trigger a competing release. **Personal CI** runs one Linux job on PRs targeting `personal`:
+changed-file format/lint, web/desktop/tooling typechecks, and focused release/highlighting tests.
+It does not replace upstream's server, mobile, or platform test matrices; validate changes in
+those areas locally when merging upstream. The fork disables the other imported workflows in
+GitHub Actions settings, keeping their files for future upstream merges. All runner labels use
+standard GitHub-hosted machines. Neither personal release path publishes npm packages or deploys
+the upstream websites.
 
 ## Set up signing once
 
@@ -35,9 +63,20 @@ the local server is convenient. The workflow builds on GitHub and does not inter
 threads on this Mac. Upstream changes still need to be merged into `personal`; publishing does
 not merge them automatically.
 
-The release version is the next patch after the highest plain `major.minor.patch` version in
-the source manifest or this fork's published releases. Source manifests are restored after the
-build; releases do not create version-only commits.
+Versions retain the upstream manifest's version and append a fork counter: upstream `0.1.5`
+becomes `0.1.5-personal.1`, then `0.1.5-personal.2`. When upstream becomes `0.1.6`, the counter
+starts at `0.1.6-personal.1`. Both release paths count existing drafts as reserved versions.
+Build manifests are restored after packaging; releases do not create version-only commits.
+
+These are published as regular GitHub Releases on this fork's `latest` feed, with
+`latest-mac.yml`; the personal suffix does not select a separate updater channel. The publisher
+explicitly marks each release latest, including the initial migration to the suffix scheme.
+The fork's feed and repository are separate from upstream's.
+
+The old personal `0.1.6` is newer in SemVer order than `0.1.5-personal.1`. Install the first
+suffix release manually once, retaining the same certificate and profile. Later personal
+counters and newer upstream bases update normally. Do not use `+personal.N` build metadata:
+SemVer comparison ignores that counter, so it cannot drive updates.
 
 ## Remove trust
 

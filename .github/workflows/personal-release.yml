@@ -1,8 +1,6 @@
 name: Personal macOS release
 
 on:
-  push:
-    branches: [personal]
   workflow_dispatch:
 
 concurrency:
@@ -41,46 +39,11 @@ jobs:
           import { appendFileSync, readFileSync } from "node:fs";
 
           const repo = process.env.GITHUB_REPOSITORY;
-          const token = process.env.GH_TOKEN;
           const base = JSON.parse(readFileSync("apps/desktop/package.json", "utf8")).version;
-          const plainVersion = /^(\d+)\.(\d+)\.(\d+)$/;
-          const parse = (version) => {
-            const match = plainVersion.exec(version);
-            if (!match) throw new Error(`Expected a plain x.y.z version, got ${version}`);
-            return match.slice(1).map(Number);
-          };
-          const compare = (left, right) => {
-            for (let index = 0; index < 3; index += 1) {
-              if (left[index] !== right[index]) return left[index] - right[index];
-            }
-            return 0;
-          };
-
-          const versions = [parse(base)];
-          let page = 1;
-          while (true) {
-            const url = `${process.env.GITHUB_API_URL}/repos/${repo}/releases?per_page=100&page=${page}`;
-            const response = await fetch(url, {
-              headers: {
-                accept: "application/vnd.github+json",
-                authorization: `Bearer ${token}`,
-                "x-github-api-version": "2022-11-28",
-              },
-            });
-            if (!response.ok) throw new Error(`GitHub release lookup failed: HTTP ${response.status}`);
-            const releases = await response.json();
-            if (!Array.isArray(releases)) throw new Error("GitHub release lookup returned invalid data");
-            for (const release of releases) {
-              const tag = /^v?(\d+\.\d+\.\d+)$/.exec(release.tag_name ?? "")?.[1];
-              if (!release.draft && tag) versions.push(parse(tag));
-            }
-            if (releases.length < 100) break;
-            page += 1;
-          }
-
-          const maximum = versions.reduce((best, version) => compare(version, best) > 0 ? version : best);
-          maximum[2] += 1;
-          const version = maximum.join(".");
+          const { execFileSync } = await import("node:child_process");
+          const { nextPersonalVersion } = await import("./scripts/personal-release.ts");
+          const pages = JSON.parse(execFileSync("gh", ["api", `repos/${repo}/releases`, "--paginate", "--slurp"], { encoding: "utf8" }));
+          const version = nextPersonalVersion(base, pages.flat().map(release => release.tag_name));
           appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`);
           console.log(`Resolved personal release ${version}.`);
           NODE
@@ -217,8 +180,10 @@ jobs:
           assets+=("${blockmaps[@]}")
           gh release create "$tag" "${assets[@]}" \
             --target "$GITHUB_SHA" \
+            --draft \
             --title "T3 Code Personal v$VERSION" \
             --notes "Personal macOS arm64 release with the signed in-app update feed."
+          gh release edit "$tag" --draft=false --latest
 
       - name: Clean temporary signing trust and keychain
         if: always()
