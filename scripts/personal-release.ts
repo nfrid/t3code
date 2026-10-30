@@ -57,6 +57,18 @@ export function verifyPersonalManifest(source: string, version: string, director
   return expected;
 }
 
+export function verifyPersonalSigningRequirement(
+  requirement: { status: number | null; stdout: string; stderr: string },
+  leaf: Uint8Array,
+) {
+  const fingerprint = NodeCrypto.createHash("sha1").update(leaf).digest("hex");
+  if (
+    requirement.status !== 0 ||
+    !requirement.stdout.toLowerCase().includes(`certificate leaf = h"${fingerprint}"`)
+  )
+    throw new Error("App does not pin the signing certificate.");
+}
+
 async function release() {
   const [platform, architecture] = Effect.runSync(
     Effect.all([HostProcess.Platform, HostProcess.Architecture]),
@@ -239,12 +251,7 @@ async function release() {
     const requirement = NodeChildProcess.spawnSync("codesign", ["-d", "-r-", app], {
       encoding: "utf8",
     });
-    const fingerprint = NodeCrypto.createHash("sha1").update(leaf).digest("hex");
-    if (
-      requirement.status !== 0 ||
-      !requirement.stderr.toLowerCase().includes(`certificate leaf = h"${fingerprint}"`)
-    )
-      throw new Error("App does not pin the signing certificate.");
+    verifyPersonalSigningRequirement(requirement, leaf);
     command("hdiutil", ["detach", mount]);
     mounted = false;
     assertCheckout();
