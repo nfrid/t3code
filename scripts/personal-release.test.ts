@@ -4,7 +4,26 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { expect, it } from "vite-plus/test";
-import { nextPersonalVersion, verifyPersonalManifest } from "./personal-release.ts";
+import {
+  nextPersonalVersion,
+  verifyPersonalManifest,
+  verifyPersonalSigningRequirement,
+} from "./personal-release.ts";
+
+it("reads the certificate pin from codesign stdout and rejects a different certificate", () => {
+  const leaf = Buffer.from("certificate");
+  const fingerprint = NodeCrypto.createHash("sha1").update(leaf).digest("hex");
+  const requirement = {
+    status: 0,
+    stdout: `designated => identifier "com.t3tools.t3code" and certificate leaf = H"${fingerprint}"\n`,
+    stderr: "Executable=/Volumes/T3 Code/T3 Code (Beta).app/Contents/MacOS/T3 Code (Beta)\n",
+  };
+  expect(() => verifyPersonalSigningRequirement(requirement, leaf)).not.toThrow();
+  expect(() => verifyPersonalSigningRequirement(requirement, Buffer.from("other"))).toThrow(
+    "certificate",
+  );
+  expect(() => verifyPersonalSigningRequirement({ ...requirement, status: 1 }, leaf)).toThrow();
+});
 
 it("increments only the fork counter for the real upstream version, including drafts", () => {
   expect(
