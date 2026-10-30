@@ -7,6 +7,11 @@
       "command": "node scripts/setup-worktree.ts",
       "icon": "configure",
       "runOnWorktreeCreate": true
+    },
+    {
+      "name": "Build & Publish Personal Release",
+      "command": "vp run personal:release",
+      "icon": "build"
     }
   ]
 }

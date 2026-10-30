@@ -2862,6 +2862,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       ...(signed ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") } : {}),
       ...(personalIdentity && !signed
         ? {
+            detectUpdateChannel: false,
             identity: personalIdentity,
             sign: path.join(repoRoot, "scripts/sign-macos-personal.ts"),
             notarize: false,

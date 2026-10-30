@@ -54,7 +54,8 @@
     "release:smoke": "node scripts/release-smoke.ts",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .vite-plus apps/*/.vite-plus packages/*/.vite-plus",
     "sync:repos": "node scripts/sync-reference-repos.ts",
-    "personal:signing": "bash scripts/setup-personal-signing.sh"
+    "personal:signing": "bash scripts/setup-personal-signing.sh",
+    "personal:release": "node scripts/personal-release.ts"
   },
   "devDependencies": {
     "@coderabbitai/config": "1.1.0",
