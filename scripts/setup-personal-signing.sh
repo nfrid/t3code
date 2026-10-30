@@ -7,11 +7,9 @@ if [[ "$(uname -s)" != Darwin ]]; then
   exit 1
 fi
 
-repository=nfrid/t3code
 signing_dir="${XDG_CONFIG_HOME:-$HOME/.config}/t3code-personal-signing"
 mkdir -p "$signing_dir"
 chmod 700 "$signing_dir"
-gh auth status >/dev/null
 
 if [[ ! -f "$signing_dir/identity.p12" ]]; then
   staging_dir=$(mktemp -d "$signing_dir/setup.XXXXXX")
@@ -45,10 +43,6 @@ fi
   -passin "file:$signing_dir/password" -nokeys -out /dev/null
 echo "Signing certificate:"
 /usr/bin/openssl x509 -in "$signing_dir/certificate.pem" -noout -subject -fingerprint -sha256
-
-base64 < "$signing_dir/identity.p12" | tr -d '\n' \
-  | gh secret set PERSONAL_MACOS_CERTIFICATE_P12 --repo "$repository"
-gh secret set PERSONAL_MACOS_CERTIFICATE_PASSWORD --repo "$repository" < "$signing_dir/password"
 
 keychain=$(security default-keychain -d user | sed -E 's/^[[:space:]]*"(.*)"$/\1/')
 echo "Authorizing this certificate for code signing only; macOS may ask for confirmation."

@@ -49,5 +49,5 @@ jobs:
 
       - name: Test personal release and highlighting
         run: >-
-          vp test run scripts/personal-release.test.ts scripts/build-desktop-artifact.test.ts
+          vp test run scripts/personal-release.test.ts scripts/personal-update-server.test.ts scripts/build-desktop-artifact.test.ts
           apps/web/src/lib/syntaxHighlighting.test.ts apps/web/src/lib/diffRendering.test.ts
