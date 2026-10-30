@@ -22,7 +22,7 @@ export function getSyntaxHighlighterPromise(language: string): Promise<DiffsHigh
 
   const promise = getSharedHighlighter({
     // Both palettes, so switching appearance never needs a new highlighter.
-    themes: Object.values(DIFF_THEME_NAMES),
+    themes: [...Object.values(DIFF_THEME_NAMES), "dracula"],
     langs: [language as SupportedLanguages],
     preferredHighlighter: PREFERRED_HIGHLIGHTER,
   }).catch((error) => {

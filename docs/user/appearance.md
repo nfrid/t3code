@@ -21,6 +21,13 @@ Android uses **Material You Layout** by default unless you have turned it off in
 It changes shapes, spacing, and controls independently
 of the selected theme.
 
+## Syntax highlighting
+
+On web and desktop, choose **Settings → Appearance → Syntax highlighting → Dracula** to use
+Dracula syntax colors in code blocks, file previews, and diffs in dark mode. Light mode keeps its
+light syntax palette. Choose **Default** to restore the original colors. This preference is saved
+on each device or browser independently of the interface theme.
+
 ## Composer context
 
 Git-backed projects show branch and worktree controls below the composer while you create a thread.

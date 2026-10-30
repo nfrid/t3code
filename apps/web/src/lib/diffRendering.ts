@@ -9,10 +9,15 @@ export const DIFF_THEME_NAMES = {
   dark: "pierre-dark",
 } as const;
 
-export type DiffThemeName = (typeof DIFF_THEME_NAMES)[keyof typeof DIFF_THEME_NAMES];
+export type DiffThemeName = (typeof DIFF_THEME_NAMES)[keyof typeof DIFF_THEME_NAMES] | "dracula";
 
-export function resolveDiffThemeName(theme: "light" | "dark"): DiffThemeName {
-  return DIFF_THEME_NAMES[theme];
+export function resolveDiffThemeName(
+  theme: "light" | "dark",
+  syntaxHighlightTheme: "default" | "dracula" = "default",
+): DiffThemeName {
+  return theme === "dark" && syntaxHighlightTheme === "dracula"
+    ? "dracula"
+    : DIFF_THEME_NAMES[theme];
 }
 
 const FNV_OFFSET_BASIS_32 = 0x811c9dc5;

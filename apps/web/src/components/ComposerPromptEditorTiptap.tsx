@@ -102,6 +102,8 @@ import {
   markAsClipboardEdit,
 } from "~/composer-undo-grouping";
 import { collectInlineContextIds } from "~/lib/composerContextReferences";
+import { getClientSettings } from "~/hooks/useSettings";
+import { getRenderedAppearance } from "~/hooks/useTheme";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { cn, isMacPlatform } from "~/lib/utils";
 import { basenameOfPath } from "~/pierre-icons";
@@ -862,7 +864,8 @@ function createComposerExtensions(richText: boolean) {
           composerCodeBlockHighlight({
             resolveTheme: () =>
               resolveDiffThemeName(
-                document.documentElement.classList.contains("dark") ? "dark" : "light",
+                getRenderedAppearance(),
+                getClientSettings().syntaxHighlightTheme,
               ),
           }),
           ...ComposerBlockExtensions.map((extension) =>

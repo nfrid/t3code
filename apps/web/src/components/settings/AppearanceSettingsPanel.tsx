@@ -147,6 +147,50 @@ export function AppearanceSettingsPanel() {
         </div>
       </SettingsSection>
 
+      <SettingsSection id="appearance-code" title="Code">
+        <SettingsRow
+          {...searchableSetting("syntax-highlight-theme")}
+          description="Choose syntax colors for code blocks, files, and diffs in dark mode. Light mode keeps its light palette."
+          resetAction={
+            settings.syntaxHighlightTheme !== DEFAULT_UNIFIED_SETTINGS.syntaxHighlightTheme ? (
+              <SettingResetButton
+                label="syntax highlighting"
+                onClick={() =>
+                  updateSettings({
+                    syntaxHighlightTheme: DEFAULT_UNIFIED_SETTINGS.syntaxHighlightTheme,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <div className="w-full sm:w-40">
+              <Select
+                value={settings.syntaxHighlightTheme}
+                onValueChange={(value) => {
+                  if (value === "default" || value === "dracula")
+                    updateSettings({ syntaxHighlightTheme: value });
+                }}
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="w-full min-w-0"
+                  aria-label="Syntax highlighting"
+                >
+                  <SelectValue>
+                    {settings.syntaxHighlightTheme === "dracula" ? "Dracula" : "Default"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  <SelectItem value="default">Default</SelectItem>
+                  <SelectItem value="dracula">Dracula</SelectItem>
+                </SelectPopup>
+              </Select>
+            </div>
+          }
+        />
+      </SettingsSection>
+
       <SettingsSection id="appearance-interface" title="Interface">
         <SettingsRow
           {...searchableSetting("setting-appearance-contrast")}

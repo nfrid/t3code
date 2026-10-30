@@ -20,7 +20,7 @@ const samples = {
 
 const highlighterOptions = {
   langs: Object.keys(samples) as Array<keyof typeof samples>,
-  themes: ["pierre-dark", "pierre-light"],
+  themes: ["pierre-dark", "pierre-light", "dracula"],
 };
 
 describe.each(["shiki-wasm", "highlights"] as const)(
@@ -35,7 +35,7 @@ describe.each(["shiki-wasm", "highlights"] as const)(
           ...highlighterOptions,
           preferredHighlighter: engine,
         });
-        for (const theme of ["pierre-dark", "pierre-light"] as const) {
+        for (const theme of ["pierre-dark", "pierre-light", "dracula"] as const) {
           const highlight = createIncrementalHighlightedDocument(highlighter, language, theme);
           for (let end = 0; end <= code.length; end++) {
             const text = code.slice(0, end);

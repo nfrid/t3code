@@ -314,6 +314,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["transparent transparency solid menus dialogs composer"],
   },
   {
+    id: "syntax-highlight-theme",
+    title: "Syntax highlighting",
+    to: "/settings/appearance",
+    searchTerms: ["dracula code blocks files diff syntax colors highlighter theme"],
+  },
+  {
     id: "diff-color-scheme",
     title: "Diff colors",
     to: "/settings/diffs",

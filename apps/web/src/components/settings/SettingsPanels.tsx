@@ -433,6 +433,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.diffColorScheme !== DEFAULT_UNIFIED_SETTINGS.diffColorScheme
       ? ["Diff colors"]
       : []),
+    ...(settings.syntaxHighlightTheme !== DEFAULT_UNIFIED_SETTINGS.syntaxHighlightTheme
+      ? ["Syntax highlighting"]
+      : []),
     ...(settings.chatWidth !== DEFAULT_UNIFIED_SETTINGS.chatWidth ? ["Chat width"] : []),
     ...(settings.effortDisplay !== DEFAULT_UNIFIED_SETTINGS.effortDisplay
       ? ["Effort display"]
@@ -608,6 +611,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     updateSettings({
       appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
       diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme,
+      syntaxHighlightTheme: DEFAULT_UNIFIED_SETTINGS.syntaxHighlightTheme,
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
       effortDisplay: DEFAULT_UNIFIED_SETTINGS.effortDisplay,
       mathRenderingEnabled: DEFAULT_UNIFIED_SETTINGS.mathRenderingEnabled,
