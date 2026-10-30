@@ -13,7 +13,7 @@ jobs:
   release:
     name: Build and publish personal macOS arm64 release
     if: github.repository == 'nfrid/t3code' && github.ref == 'refs/heads/personal'
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 90
     permissions:
       contents: write
