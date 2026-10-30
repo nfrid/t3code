@@ -2818,6 +2818,10 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   if (platform === "mac") {
     const path = yield* Path.Path;
     const repoRoot = yield* RepoRoot;
+    const personalIdentity = yield* Config.String("T3CODE_MACOS_SELF_SIGNED_IDENTITY").pipe(
+      Config.option,
+      Effect.map(Option.getOrUndefined),
+    );
     buildConfig.mac = {
       target: target === "dmg" ? [target, "zip"] : [target],
       icon: "icon.icns",
@@ -2856,6 +2860,14 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         },
       ],
       ...(signed ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") } : {}),
+      ...(personalIdentity && !signed
+        ? {
+            identity: personalIdentity,
+            sign: path.join(repoRoot, "scripts/sign-macos-personal.ts"),
+            notarize: false,
+            forceCodeSigning: true,
+          }
+        : {}),
       ...(macPasskeySigning
         ? {
             entitlements: macPasskeySigning.entitlementsPath,

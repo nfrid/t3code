@@ -526,6 +526,41 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         undefined,
       );
 
+      const personal = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.34",
+        false,
+        false,
+        undefined,
+        undefined,
+      ).pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: {
+                T3CODE_MACOS_SELF_SIGNED_IDENTITY: "T3 Code Personal",
+                T3CODE_MACOS_SELF_SIGNED_KEYCHAIN: "/tmp/personal.keychain-db",
+                T3CODE_DESKTOP_UPDATE_REPOSITORY: "nfrid/t3code",
+              },
+            }),
+          ),
+        ),
+      );
+      const personalMac = personal.mac as Record<string, unknown>;
+      assert.equal(personalMac.identity, "T3 Code Personal");
+      assert.match(personalMac.sign as string, /scripts[\\/]sign-macos-personal\.ts$/);
+      assert.isFalse(personalMac.notarize);
+      assert.notProperty(personalMac, "provisioningProfile");
+      assert.deepStrictEqual(personal.publish, [
+        {
+          provider: "github",
+          owner: "nfrid",
+          repo: "t3code",
+          releaseType: "release",
+        },
+      ]);
+
       assert.isNull(preview.publish);
       assert.isNull(previewChannel.publish);
       assert.deepStrictEqual(release.publish, [

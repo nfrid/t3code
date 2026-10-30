@@ -1,0 +1,230 @@
+name: Personal macOS release
+
+on:
+  push:
+    branches: [personal]
+  workflow_dispatch:
+
+concurrency:
+  group: personal-macos-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish personal macOS arm64 release
+    if: github.repository == 'nfrid/t3code' && github.ref == 'refs/heads/personal'
+    runs-on: macos-15
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-ci-deps
+        with:
+          install-args: --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/scripts...
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          targets: aarch64-apple-darwin
+
+      - name: Resolve next release version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+
+          const repo = process.env.GITHUB_REPOSITORY;
+          const token = process.env.GH_TOKEN;
+          const base = JSON.parse(readFileSync("apps/desktop/package.json", "utf8")).version;
+          const plainVersion = /^(\d+)\.(\d+)\.(\d+)$/;
+          const parse = (version) => {
+            const match = plainVersion.exec(version);
+            if (!match) throw new Error(`Expected a plain x.y.z version, got ${version}`);
+            return match.slice(1).map(Number);
+          };
+          const compare = (left, right) => {
+            for (let index = 0; index < 3; index += 1) {
+              if (left[index] !== right[index]) return left[index] - right[index];
+            }
+            return 0;
+          };
+
+          const versions = [parse(base)];
+          let page = 1;
+          while (true) {
+            const url = `${process.env.GITHUB_API_URL}/repos/${repo}/releases?per_page=100&page=${page}`;
+            const response = await fetch(url, {
+              headers: {
+                accept: "application/vnd.github+json",
+                authorization: `Bearer ${token}`,
+                "x-github-api-version": "2022-11-28",
+              },
+            });
+            if (!response.ok) throw new Error(`GitHub release lookup failed: HTTP ${response.status}`);
+            const releases = await response.json();
+            if (!Array.isArray(releases)) throw new Error("GitHub release lookup returned invalid data");
+            for (const release of releases) {
+              const tag = /^v?(\d+\.\d+\.\d+)$/.exec(release.tag_name ?? "")?.[1];
+              if (!release.draft && tag) versions.push(parse(tag));
+            }
+            if (releases.length < 100) break;
+            page += 1;
+          }
+
+          const maximum = versions.reduce((best, version) => compare(version, best) > 0 ? version : best);
+          maximum[2] += 1;
+          const version = maximum.join(".");
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`);
+          console.log(`Resolved personal release ${version}.`);
+          NODE
+
+      - name: Prepare temporary signing keychain
+        env:
+          PERSONAL_MACOS_CERTIFICATE_P12: ${{ secrets.PERSONAL_MACOS_CERTIFICATE_P12 }}
+          PERSONAL_MACOS_CERTIFICATE_PASSWORD: ${{ secrets.PERSONAL_MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$PERSONAL_MACOS_CERTIFICATE_P12" || -z "$PERSONAL_MACOS_CERTIFICATE_PASSWORD" ]]; then
+            echo "Personal macOS signing secrets are required; refusing to build an unsigned release." >&2
+            exit 1
+          fi
+
+          signing_dir="$RUNNER_TEMP/t3-personal-signing"
+          keychain="$signing_dir/personal.keychain-db"
+          mkdir -m 700 "$signing_dir"
+          security list-keychains -d user > "$signing_dir/keychains.before"
+
+          keychain_password="$(openssl rand -hex 24)"
+          p12="$signing_dir/certificate.p12"
+          certificate="$signing_dir/certificate.pem"
+          printf '%s' "$PERSONAL_MACOS_CERTIFICATE_P12" | base64 -D > "$p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$p12" -k "$keychain" -P "$PERSONAL_MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+          openssl pkcs12 -legacy -in "$p12" -clcerts -nokeys \
+            -passin env:PERSONAL_MACOS_CERTIFICATE_PASSWORD -out "$certificate"
+          security add-trusted-cert -r trustRoot -p codeSign -k "$keychain" "$certificate"
+
+          keychains=()
+          while IFS= read -r entry; do
+            entry="$(printf '%s' "$entry" | sed -E 's/^[[:space:]]*"(.*)"$/\1/')"
+            [[ -z "$entry" ]] || keychains+=("$entry")
+          done < "$signing_dir/keychains.before"
+          security list-keychains -d user -s "$keychain" "${keychains[@]}"
+
+          identities="$(security find-identity -v -p codesigning "$keychain")"
+          if ! grep -Fq '"T3 Code Personal"' <<< "$identities"; then
+            echo "The temporary keychain does not contain a valid 'T3 Code Personal' signing identity." >&2
+            exit 1
+          fi
+
+          openssl x509 -in "$certificate" -outform DER -out "$signing_dir/expected-leaf.der"
+          echo "T3CODE_MACOS_SELF_SIGNED_IDENTITY=T3 Code Personal" >> "$GITHUB_ENV"
+          echo "T3CODE_MACOS_SELF_SIGNED_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          echo "T3CODE_DESKTOP_UPDATE_REPOSITORY=$GITHUB_REPOSITORY" >> "$GITHUB_ENV"
+          echo "T3_PERSONAL_SIGNING_DIR=$signing_dir" >> "$GITHUB_ENV"
+
+      - name: Build arm64 DMG and updater feed
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          vp run dist:desktop:dmg:arm64 --build-version "$VERSION"
+          test -f "release/T3-Code-$VERSION-arm64.dmg"
+          test -f "release/T3-Code-$VERSION-arm64.zip"
+          test -f release/latest-mac.yml
+          grep -Fq "T3-Code-$VERSION-arm64.zip" release/latest-mac.yml
+
+      - name: Verify signed app and pinned leaf requirement
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          dmg="release/T3-Code-$VERSION-arm64.dmg"
+          mountpoint="$(mktemp -d "$RUNNER_TEMP/t3-personal-dmg.XXXXXX")"
+          verify_dir="$RUNNER_TEMP/t3-personal-signing/verify"
+          mkdir -m 700 "$verify_dir"
+          hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mountpoint" >/dev/null
+          trap 'hdiutil detach "$mountpoint" >/dev/null 2>&1 || true' EXIT
+
+          app="$(find "$mountpoint" -maxdepth 3 -type d -name '*.app' -print -quit)"
+          if [[ -z "$app" ]]; then
+            echo "No app bundle was found in the release DMG." >&2
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "$app"
+          (
+            cd "$verify_dir"
+            codesign -d --extract-certificates "$app" >/dev/null 2>&1
+          )
+
+          expected_sha256="$(shasum -a 256 "$T3_PERSONAL_SIGNING_DIR/expected-leaf.der" | awk '{print $1}')"
+          actual_sha256="$(shasum -a 256 "$verify_dir/codesign0" | awk '{print $1}')"
+          if [[ "$actual_sha256" != "$expected_sha256" ]]; then
+            echo "The app's signing leaf does not match the configured personal certificate." >&2
+            exit 1
+          fi
+
+          expected_sha1="$(shasum -a 1 "$T3_PERSONAL_SIGNING_DIR/expected-leaf.der" | awk '{print toupper($1)}')"
+          requirement="$(codesign -d -r- "$app" 2>&1)"
+          normalized_requirement="$(printf '%s' "$requirement" | tr '[:lower:]' '[:upper:]')"
+          if ! grep -Fq "CERTIFICATE LEAF = H\"$expected_sha1\"" <<< "$normalized_requirement"; then
+            echo "The app's designated requirement does not pin the configured certificate leaf." >&2
+            printf '%s\n' "$requirement" >&2
+            exit 1
+          fi
+          echo "Verified strict bundle signature and pinned certificate leaf $expected_sha256."
+          executable=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$app/Contents/Info.plist")
+          node scripts/smoke-desktop-app.ts --executable "$app/Contents/MacOS/$executable" \
+            --artifacts-dir "$RUNNER_TEMP/desktop-launch-check"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v$VERSION"
+          assets=(
+            "release/T3-Code-$VERSION-arm64.dmg"
+            "release/T3-Code-$VERSION-arm64.zip"
+            release/latest-mac.yml
+          )
+          shopt -s nullglob
+          blockmaps=(release/*.blockmap)
+          assets+=("${blockmaps[@]}")
+          gh release create "$tag" "${assets[@]}" \
+            --target "$GITHUB_SHA" \
+            --title "T3 Code Personal v$VERSION" \
+            --notes "Personal macOS arm64 release with the signed in-app update feed."
+
+      - name: Clean temporary signing trust and keychain
+        if: always()
+        run: |
+          set -euo pipefail
+          signing_dir="$RUNNER_TEMP/t3-personal-signing"
+          if [[ -f "$signing_dir/keychains.before" ]]; then
+            keychains=()
+            while IFS= read -r entry; do
+              entry="$(printf '%s' "$entry" | sed -E 's/^[[:space:]]*"(.*)"$/\1/')"
+              [[ -z "$entry" ]] || keychains+=("$entry")
+            done < "$signing_dir/keychains.before"
+            if [[ ${#keychains[@]} -gt 0 ]]; then
+              security list-keychains -d user -s "${keychains[@]}"
+            fi
+          fi
+          if [[ -f "$signing_dir/certificate.pem" ]]; then
+            security remove-trusted-cert "$signing_dir/certificate.pem" 2>/dev/null || true
+          fi
+          security delete-keychain "$signing_dir/personal.keychain-db" 2>/dev/null || true
+          rm -rf "$signing_dir"
