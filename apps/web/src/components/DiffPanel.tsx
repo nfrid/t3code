@@ -48,9 +48,9 @@ import {
   buildFileDiffIdentityKey,
   getDiffLineStat,
   getRenderablePatch,
-  resolveDiffThemeName,
   resolveFileDiffPath,
 } from "../lib/diffRendering";
+import { useSyntaxTheme } from "../hooks/useSyntaxTheme";
 import { PREFERRED_HIGHLIGHTER } from "../lib/syntaxHighlighting";
 import { areAllDiffFilesCollapsed, toggleAllDiffFiles } from "../lib/diffCollapse";
 import { LIVE_REFRESH_MIN_INTERVAL_MS, useLiveRefresh } from "../hooks/useLiveRefresh";
@@ -210,6 +210,7 @@ export default function DiffPanel({
   visible,
 }: DiffPanelProps) {
   const resolvedTheme = useRenderedAppearance();
+  const syntaxTheme = useSyntaxTheme(resolvedTheme);
   const settings = useClientSettings((settings) => ({
     diffFilesCollapsed: settings.diffFilesCollapsed,
     diffIgnoreWhitespace: settings.diffIgnoreWhitespace,
@@ -1439,7 +1440,7 @@ export default function DiffPanel({
                       diffStyle: diffLayout === "split" ? "split" : "unified",
                       lineDiffType: "none",
                       overflow: wordWrap ? "wrap" : "scroll",
-                      theme: resolveDiffThemeName(resolvedTheme),
+                      theme: syntaxTheme,
                       preferredHighlighter: PREFERRED_HIGHLIGHTER,
                       themeType: resolvedTheme as DiffThemeType,
                       stickyHeaders: true,

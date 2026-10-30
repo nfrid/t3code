@@ -3,13 +3,14 @@ import { WorkerPoolManager } from "@pierre/diffs/worker";
 import DiffsWorker from "@pierre/diffs/worker/worker.js?worker";
 import * as Schema from "effect/Schema";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { getClientSettings, subscribeClientSettings } from "../hooks/useSettings";
 import { getRenderedAppearance, subscribeRenderedAppearance } from "../hooks/useTheme";
-import { resolveDiffThemeName } from "../lib/diffRendering";
+import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "../lib/syntaxHighlighting";
 
 export class DiffWorkerError extends Schema.TaggedError<DiffWorkerError>()("DiffWorkerError", {
   operation: Schema.Literals(["create-worker", "get-render-options", "set-render-options"]),
-  themeName: Schema.Literals(["pierre-dark", "t3-light"]),
+  themeName: Schema.Literals(["pierre-dark", "t3-light", "dracula"]),
   cause: Schema.Defect(),
 }) {
   override get message(): string {
@@ -32,25 +33,15 @@ let sharedWorkerPool:
     }
   | undefined;
 
-function applyDiffWorkerTheme(pool: WorkerPoolManager) {
-  const themeName = resolveDiffThemeName(getRenderedAppearance());
-  let operation: DiffWorkerError["operation"] = "get-render-options";
-  void (async () => {
-    try {
-      const current = pool.getDiffRenderOptions();
-      if (current.theme === themeName) return;
-      operation = "set-render-options";
-      await pool.setRenderOptions({ ...current, theme: themeName });
-    } catch (cause) {
-      console.error(new DiffWorkerError({ operation, themeName, cause }));
-    }
-  })();
+function currentDiffTheme(): DiffThemeName {
+  return resolveDiffThemeName(getRenderedAppearance(), getClientSettings().syntaxHighlightTheme);
 }
 
 // The pool follows the rendered appearance for as long as it lives, so it never depends on a
 // mounted provider to carry a theme change across.
 function createDiffWorkerPool(poolSize: number) {
-  const themeName = resolveDiffThemeName(getRenderedAppearance());
+  let themeName = currentDiffTheme();
+  let applyingTheme = false;
   const pool = new WorkerPoolManager(
     {
       workerFactory: () => {
@@ -70,9 +61,44 @@ function createDiffWorkerPool(poolSize: number) {
       useTokenTransformer: true,
     },
   );
+  const applyTheme = () => {
+    themeName = currentDiffTheme();
+    if (applyingTheme) return;
+    applyingTheme = true;
+    void (async () => {
+      let operation: DiffWorkerError["operation"] = "get-render-options";
+      try {
+        while (true) {
+          const requestedTheme = themeName;
+          const current = pool.getDiffRenderOptions();
+          if (current.theme !== requestedTheme) {
+            operation = "set-render-options";
+            await pool.setRenderOptions({ ...current, theme: requestedTheme });
+          }
+          operation = "get-render-options";
+          if (requestedTheme === themeName) break;
+        }
+      } catch (cause) {
+        console.error(
+          new DiffWorkerError({
+            operation,
+            themeName,
+            cause,
+          }),
+        );
+      } finally {
+        applyingTheme = false;
+      }
+    })();
+  };
+  const unsubscribeAppearance = subscribeRenderedAppearance(applyTheme);
+  const unsubscribeSettings = subscribeClientSettings(applyTheme);
   return {
     pool,
-    unsubscribeTheme: subscribeRenderedAppearance(() => applyDiffWorkerTheme(pool)),
+    unsubscribeTheme: () => {
+      unsubscribeAppearance();
+      unsubscribeSettings();
+    },
     consumers: 0,
     idleTimer: undefined,
   };

@@ -3,6 +3,8 @@ import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 
+import { subscribeClientSettings } from "~/hooks/useSettings";
+import { subscribeRenderedAppearance } from "~/hooks/useTheme";
 import type { DiffThemeName } from "~/lib/diffRendering";
 import { languageOfInfoString } from "~/composer-code-languages";
 import { getSyntaxHighlighterPromise } from "~/lib/syntaxHighlighting";
@@ -140,19 +142,16 @@ export function composerCodeBlockHighlight(options: {
             };
 
             refresh(false);
-            // The theme lives on <html>, outside the editor, so nothing would
-            // otherwise tell the view a repaint is due.
-            const themeObserver = new MutationObserver(() => refresh(false));
-            themeObserver.observe(document.documentElement, {
-              attributeFilter: ["class"],
-            });
+            const unsubscribeAppearance = subscribeRenderedAppearance(() => refresh(false));
+            const unsubscribeSettings = subscribeClientSettings(() => refresh(false));
 
             return {
               update: () => refresh(true),
               destroy() {
                 disposed = true;
                 clearTimeout(deferredRefresh);
-                themeObserver.disconnect();
+                unsubscribeAppearance();
+                unsubscribeSettings();
               },
             };
           },

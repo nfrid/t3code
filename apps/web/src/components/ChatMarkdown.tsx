@@ -129,9 +129,9 @@ import {
   usePreferredEditor,
 } from "../editorPreferences";
 import { openInEditorMenuLabel } from "../editorLabels";
-import { resolveDiffThemeName } from "../lib/diffRendering";
 import { RenderErrorBoundary } from "./RenderErrorBoundary";
 import { useRenderedAppearance } from "../hooks/useTheme";
+import { useSyntaxTheme } from "../hooks/useSyntaxTheme";
 import { useClientSettings } from "../hooks/useSettings";
 import { chatMarkdownClipboardPayload } from "../markdown-clipboard";
 import {
@@ -643,7 +643,7 @@ function useChatMarkdownState({
       input: { cwd: filePath, editor: "file-manager", reveal: true },
     });
   };
-  const diffThemeName = resolveDiffThemeName(resolvedTheme);
+  const diffThemeName = useSyntaxTheme(resolvedTheme);
   const markdownUrlTransform = (href: string) => {
     if (parseAssistantCitationHref(href)) return href;
     if (parseComposerContextHref(href)) return href;
