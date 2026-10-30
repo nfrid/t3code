@@ -100,6 +100,7 @@ jobs:
           keychain="$signing_dir/personal.keychain-db"
           mkdir -m 700 "$signing_dir"
           security list-keychains -d user > "$signing_dir/keychains.before"
+          security default-keychain -d user > "$signing_dir/default.before"
 
           keychain_password="$(openssl rand -hex 24)"
           p12="$signing_dir/certificate.p12"
@@ -108,6 +109,7 @@ jobs:
           security create-keychain -p "$keychain_password" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
           security unlock-keychain -p "$keychain_password" "$keychain"
+          security default-keychain -d user -s "$keychain"
           security import "$p12" -k "$keychain" -P "$PERSONAL_MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
           /usr/bin/openssl pkcs12 -in "$p12" -clcerts -nokeys \
@@ -185,8 +187,18 @@ jobs:
           fi
           echo "Verified strict bundle signature and pinned certificate leaf $expected_sha256."
           executable=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$app/Contents/Info.plist")
-          node scripts/smoke-desktop-app.ts --executable "$app/Contents/MacOS/$executable" \
-            --artifacts-dir "$RUNNER_TEMP/desktop-launch-check"
+          mkdir -p "$RUNNER_TEMP/desktop-launch-check"
+          DEBUG=pw:browser node scripts/smoke-desktop-app.ts --executable "$app/Contents/MacOS/$executable" \
+            --artifacts-dir "$RUNNER_TEMP/desktop-launch-check" 2>&1 \
+            | tee "$RUNNER_TEMP/desktop-launch-check/transcript.log"
+
+      - name: Save failed launch check output
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: personal-desktop-launch-check
+          path: ${{ runner.temp }}/desktop-launch-check
+          if-no-files-found: ignore
 
       - name: Publish GitHub Release
         env:
@@ -210,21 +222,34 @@ jobs:
 
       - name: Clean temporary signing trust and keychain
         if: always()
+        timeout-minutes: 1
         run: |
-          set -euo pipefail
-          signing_dir="$RUNNER_TEMP/t3-personal-signing"
-          if [[ -f "$signing_dir/keychains.before" ]]; then
-            keychains=()
-            while IFS= read -r entry; do
-              entry="$(printf '%s' "$entry" | sed -E 's/^[[:space:]]*"(.*)"$/\1/')"
-              [[ -z "$entry" ]] || keychains+=("$entry")
-            done < "$signing_dir/keychains.before"
-            if [[ ${#keychains[@]} -gt 0 ]]; then
-              security list-keychains -d user -s "${keychains[@]}"
-            fi
-          fi
-          if [[ -f "$signing_dir/certificate.pem" ]]; then
-            sudo security remove-trusted-cert -d "$signing_dir/certificate.pem" 2>/dev/null || true
-          fi
-          security delete-keychain "$signing_dir/personal.keychain-db" 2>/dev/null || true
-          rm -rf "$signing_dir"
+          node --input-type=module <<'NODE'
+          import { spawnSync } from "node:child_process";
+          import { existsSync, readFileSync, rmSync } from "node:fs";
+          import { join } from "node:path";
+
+          const directory = join(process.env.RUNNER_TEMP, "t3-personal-signing");
+          const run = (command, args) => {
+            const result = spawnSync(command, args, {
+              timeout: 10_000,
+              killSignal: "SIGKILL",
+              stdio: "ignore",
+            });
+            if (result.status !== 0) console.log(`Cleanup: ${command} ${args[0]} did not complete successfully.`);
+          };
+          const certificate = join(directory, "certificate.pem");
+          if (existsSync(certificate)) run("sudo", ["-n", "security", "remove-trusted-cert", "-d", certificate]);
+          const list = join(directory, "keychains.before");
+          if (existsSync(list)) {
+            const keychains = readFileSync(list, "utf8").split("\n").map(line => line.trim().replace(/^"|"$/g, "")).filter(Boolean);
+            if (keychains.length) run("security", ["list-keychains", "-d", "user", "-s", ...keychains]);
+          }
+          const previousDefault = join(directory, "default.before");
+          if (existsSync(previousDefault)) {
+            const keychain = readFileSync(previousDefault, "utf8").trim().replace(/^"|"$/g, "");
+            if (keychain) run("security", ["default-keychain", "-d", "user", "-s", keychain]);
+          }
+          run("security", ["delete-keychain", join(directory, "personal.keychain-db")]);
+          rmSync(directory, { recursive: true, force: true });
+          NODE
