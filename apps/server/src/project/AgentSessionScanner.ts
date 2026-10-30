@@ -708,10 +708,19 @@ export const make = Effect.gen(function* () {
       normalizeProjectPathForComparison(path.resolve(directory)),
     ),
   );
-  const excludedProjectAncestors = [
-    path.join(homeDir, "Downloads"),
-    path.join(homeDir, "Documents", "Codex"),
-  ];
+  const excludedProjectAncestors = (yield* Effect.forEach(
+    [
+      path.join(homeDir, "Downloads"),
+      path.join(homeDir, "Documents", "Codex"),
+      baseDir,
+      worktreesDir,
+    ],
+    (directory) =>
+      fileSystem.realPath(directory).pipe(
+        Effect.orElseSucceed(() => directory),
+        Effect.map((realPath) => [directory, realPath]),
+      ),
+  )).flat();
 
   const isExcludedProjectPath = (candidatePath: string) =>
     excludedProjectRoots.has(normalizeProjectPathForComparison(candidatePath)) ||
@@ -719,9 +728,6 @@ export const make = Effect.gen(function* () {
       normalizeForWorktreeMatch(candidatePath, foldWorktreeCase).startsWith(
         normalizeForWorktreeMatch(ancestor, foldWorktreeCase),
       ),
-    ) ||
-    normalizeForWorktreeMatch(candidatePath, foldWorktreeCase).startsWith(
-      normalizeForWorktreeMatch(baseDir, foldWorktreeCase),
     ) ||
     isT3ManagedWorktree(candidatePath, worktreesDir, foldWorktreeCase);
 
