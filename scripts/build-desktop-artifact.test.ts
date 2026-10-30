@@ -23,6 +23,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import {
   buildDesktopBundles,
   DesktopBuildManifestRestoreError,
+  resolveGitHubPublishConfig,
   BundleNotSelfContainedError,
   BuildCommandFailedError,
   parseWslRuntimeArchiveMembers,
@@ -547,6 +548,23 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           ),
         ),
       );
+      const generic = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.35-personal.1",
+        false,
+        false,
+        undefined,
+        undefined,
+      ).pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: { T3CODE_DESKTOP_UPDATE_URL: "http://127.0.0.1:17890/" },
+            }),
+          ),
+        ),
+      );
       const personalMac = personal.mac as Record<string, unknown>;
       assert.isFalse(personalMac.detectUpdateChannel);
       assert.equal(personalMac.identity, "T3 Code Personal");
@@ -561,6 +579,13 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           releaseType: "release",
         },
       ]);
+      assert.deepStrictEqual(generic.publish, [
+        {
+          provider: "generic",
+          url: "http://127.0.0.1:17890/",
+          useMultipleRangeRequest: false,
+        },
+      ]);
 
       assert.isNull(preview.publish);
       assert.isNull(previewChannel.publish);
@@ -572,6 +597,20 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           releaseType: "release",
         },
       ]);
+
+      const invalidUrl = yield* Effect.flip(
+        resolveGitHubPublishConfig("latest").pipe(
+          Effect.provide(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({ env: { T3CODE_DESKTOP_UPDATE_URL: "file:///tmp/updates" } }),
+            ),
+          ),
+        ),
+      );
+      assert.match(
+        String(invalidUrl),
+        /T3CODE_DESKTOP_UPDATE_URL must be a valid absolute HTTP\(S\) URL/u,
+      );
     }).pipe(
       Effect.provide(
         ConfigProvider.layer(

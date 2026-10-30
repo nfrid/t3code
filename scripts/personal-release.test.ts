@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 import { expect, it } from "vite-plus/test";
 import {
   nextPersonalVersion,
+  publishPersonalRelease,
   verifyPersonalManifest,
   verifyPersonalSigningRequirement,
 } from "./personal-release.ts";
@@ -25,7 +26,7 @@ it("reads the certificate pin from codesign stdout and rejects a different certi
   expect(() => verifyPersonalSigningRequirement({ ...requirement, status: 1 }, leaf)).toThrow();
 });
 
-it("increments only the fork counter for the real upstream version, including drafts", () => {
+it("increments only the fork counter for the real upstream version, including reserved local builds", () => {
   expect(
     nextPersonalVersion("0.1.5", [
       "v0.1.6",
@@ -71,6 +72,35 @@ it("refuses publishing incomplete, mismatched, or tampered update artifacts", ()
     expect(() => verifyPersonalManifest(manifest(files), "0.1.5-personal.1", directory)).toThrow(
       "checksum",
     );
+  } finally {
+    NodeFS.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it("keeps the old feed active until every new artifact is ready", () => {
+  const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "personal-publish-test-"));
+  const source = NodePath.join(directory, "build");
+  const destination = NodePath.join(directory, "feed");
+  NodeFS.mkdirSync(source);
+  NodeFS.mkdirSync(destination);
+  try {
+    const files = ["T3-Code-0.1.5-personal.3-arm64.dmg", "T3-Code-0.1.5-personal.3-arm64.zip"];
+    const digest = NodeCrypto.createHash("sha512").update("artifact").digest("base64");
+    const manifest = `version: 0.1.5-personal.3\nfiles:\n${files.map((url) => `  - url: ${url}\n    sha512: ${digest}`).join("\n")}\n`;
+    NodeFS.writeFileSync(NodePath.join(source, "latest-mac.yml"), manifest);
+    NodeFS.writeFileSync(NodePath.join(destination, "latest-mac.yml"), "previous");
+    for (const file of files) NodeFS.writeFileSync(NodePath.join(source, file), "artifact");
+    expect(() => publishPersonalRelease(source, destination, "0.1.5-personal.3")).toThrow();
+    expect(NodeFS.readFileSync(NodePath.join(destination, "latest-mac.yml"), "utf8")).toBe(
+      "previous",
+    );
+    for (const file of files)
+      NodeFS.writeFileSync(NodePath.join(source, `${file}.blockmap`), "blockmap");
+    publishPersonalRelease(source, destination, "0.1.5-personal.3");
+    expect(NodeFS.readFileSync(NodePath.join(destination, "latest-mac.yml"), "utf8")).toBe(
+      manifest,
+    );
+    expect(verifyPersonalManifest(manifest, "0.1.5-personal.3", destination)).toEqual(files);
   } finally {
     NodeFS.rmSync(directory, { recursive: true, force: true });
   }

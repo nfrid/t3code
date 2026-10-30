@@ -9,8 +9,9 @@ import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { fromYaml } from "@t3tools/shared/schemaYaml";
+import { personalUpdateDirectory, personalUpdateUrl } from "./personal-update-server.ts";
+import { setupPersonalUpdateServer } from "./personal-update-server-setup.ts";
 
-const repository = "nfrid/t3code";
 const root = NodePath.dirname(import.meta.dirname);
 export function nextPersonalVersion(base: string, tags: ReadonlyArray<string>) {
   if (!/^\d+\.\d+\.\d+$/.test(base)) throw new Error(`Expected a plain upstream version: ${base}`);
@@ -31,12 +32,7 @@ const Manifest = fromYaml(
     files: Schema.Array(Schema.Struct({ url: Schema.String, sha512: Schema.String })),
   }),
 );
-const Feed = fromYaml(
-  Schema.Struct({ provider: Schema.String, owner: Schema.String, repo: Schema.String }),
-);
-const decodeReleasePages = Schema.decodeUnknownSync(
-  Schema.Array(Schema.Array(Schema.Struct({ tag_name: Schema.String }))),
-);
+const Feed = fromYaml(Schema.Struct({ provider: Schema.String, url: Schema.String }));
 const decodeDesktopVersion = Schema.decodeUnknownSync(Schema.Struct({ version: Schema.String }));
 const decodeManifest = Schema.decodeSync(Manifest);
 const decodeFeed = Schema.decodeSync(Feed);
@@ -55,6 +51,20 @@ export function verifyPersonalManifest(source: string, version: string, director
     if (digest !== entry.sha512) throw new Error(`Artifact checksum does not match: ${filename}`);
   }
   return expected;
+}
+
+export function publishPersonalRelease(source: string, destination: string, version: string) {
+  const manifest = NodeFS.readFileSync(NodePath.join(source, "latest-mac.yml"), "utf8");
+  const files = verifyPersonalManifest(manifest, version, source);
+  NodeFS.mkdirSync(destination, { recursive: true, mode: 0o700 });
+  for (const file of [...files, ...files.map((file) => `${file}.blockmap`)]) {
+    const staged = NodePath.join(destination, `.${file}.tmp`);
+    NodeFS.copyFileSync(NodePath.join(source, file), staged);
+    NodeFS.renameSync(staged, NodePath.join(destination, file));
+  }
+  const stagedManifest = NodePath.join(destination, ".latest-mac.yml.tmp");
+  NodeFS.writeFileSync(stagedManifest, manifest);
+  NodeFS.renameSync(stagedManifest, NodePath.join(destination, "latest-mac.yml"));
 }
 
 export function verifyPersonalSigningRequirement(
@@ -84,7 +94,7 @@ async function release() {
       cwd,
       env,
       encoding: "utf8",
-      timeout: program === "gh" && args[0] === "release" ? 600_000 : 30_000,
+      timeout: 30_000,
     });
     if (result.status !== 0) {
       throw new Error(`${program} ${args[0]} failed.${sensitive ? "" : ` ${result.stderr ?? ""}`}`);
@@ -129,16 +139,25 @@ async function release() {
   process.on("SIGTERM", interrupt);
   const mount = NodePath.join(temporary, "mount");
   try {
-    const pages = decodeReleasePages(
-      JSON.parse(command("gh", ["api", `repos/${repository}/releases`, "--paginate", "--slurp"])),
-    );
+    const downloads = NodePath.join(NodeOS.homedir(), "Downloads", "T3Code-Personal");
+    NodeFS.mkdirSync(downloads, { recursive: true });
+    const versions = NodeFS.readdirSync(downloads).map((entry) => entry.replace(/^release-/, ""));
+    const publishedManifest = NodePath.join(personalUpdateDirectory, "latest-mac.yml");
+    if (NodeFS.existsSync(publishedManifest))
+      versions.push(decodeManifest(NodeFS.readFileSync(publishedManifest, "utf8")).version);
+    const installedInfo = "/Applications/T3 Code (Beta).app/Contents/Info.plist";
+    if (NodeFS.existsSync(installedInfo))
+      versions.push(
+        command("/usr/libexec/PlistBuddy", [
+          "-c",
+          "Print :CFBundleShortVersionString",
+          installedInfo,
+        ]),
+      );
     const desktop = decodeDesktopVersion(
       JSON.parse(NodeFS.readFileSync(NodePath.join(root, "apps/desktop/package.json"), "utf8")),
     );
-    const version = nextPersonalVersion(
-      desktop.version,
-      pages.flat().map((item) => item.tag_name),
-    );
+    const version = nextPersonalVersion(desktop.version, versions);
     const output = NodePath.join(
       NodeOS.homedir(),
       "Downloads",
@@ -186,7 +205,7 @@ async function release() {
       {
         T3CODE_MACOS_SELF_SIGNED_IDENTITY: "T3 Code Personal",
         T3CODE_MACOS_SELF_SIGNED_KEYCHAIN: keychain,
-        T3CODE_DESKTOP_UPDATE_REPOSITORY: repository,
+        T3CODE_DESKTOP_UPDATE_URL: personalUpdateUrl,
       },
     );
     await new Promise<void>((resolve, reject) => {
@@ -233,7 +252,7 @@ async function release() {
     const feed = decodeFeed(
       NodeFS.readFileSync(NodePath.join(app, "Contents/Resources/app-update.yml"), "utf8"),
     );
-    if (feed.provider !== "github" || `${feed.owner}/${feed.repo}` !== repository)
+    if (feed.provider !== "generic" || feed.url !== personalUpdateUrl)
       throw new Error("App uses a different update feed.");
     command("codesign", ["-d", "--extract-certificates", app], temporary);
     command("/usr/bin/openssl", [
@@ -257,30 +276,10 @@ async function release() {
     assertCheckout();
     if (interrupted || command("git", ["rev-parse", "HEAD"]) !== commit)
       throw new Error("Checkout changed while building.");
-    const tag = `v${version}`;
-    const assets = [
-      ...files,
-      "latest-mac.yml",
-      ...NodeFS.readdirSync(output).filter((file) => file.endsWith(".blockmap")),
-    ].map((file) => NodePath.join(output, file));
-    command("gh", [
-      "release",
-      "create",
-      tag,
-      ...assets,
-      "--repo",
-      repository,
-      "--target",
-      commit,
-      "--draft",
-      "--title",
-      `T3 Code Personal ${tag}`,
-      "--notes",
-      `Personal macOS arm64 release from ${commit}.`,
-    ]);
-    if (interrupted) throw new Error("Release interrupted; uploaded draft was not published.");
-    command("gh", ["release", "edit", tag, "--repo", repository, "--draft=false", "--latest"]);
-    console.log(`Published https://github.com/${repository}/releases/tag/${tag}`);
+    setupPersonalUpdateServer();
+    publishPersonalRelease(output, personalUpdateDirectory, version);
+    console.log(`Published ${version} to ${personalUpdateUrl}`);
+    console.log(`Manual installer: ${NodePath.join(output, files[0]!)}`);
   } finally {
     process.off("SIGINT", interrupt);
     process.off("SIGTERM", interrupt);

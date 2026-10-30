@@ -308,6 +308,15 @@ export class InvalidMockUpdateServerPortError extends Schema.TaggedError<Invalid
   }
 }
 
+class InvalidDesktopUpdateUrlError extends Schema.TaggedError<InvalidDesktopUpdateUrlError>()(
+  "InvalidDesktopUpdateUrlError",
+  { url: Schema.String },
+) {
+  override get message(): string {
+    return "T3CODE_DESKTOP_UPDATE_URL must be a valid absolute HTTP(S) URL.";
+  }
+}
+
 export class DesktopBuildManifestRestoreError extends Schema.TaggedError<DesktopBuildManifestRestoreError>()(
   "DesktopBuildManifestRestoreError",
   { failures: Schema.Array(ReleasePackageManifestError) },
@@ -2679,13 +2688,36 @@ export function resolveDesktopRuntimeDependencies(
   );
 }
 
+const decodeDesktopUpdateUrl = Schema.decodeEffect(Schema.URLFromString);
+
 export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig")(function* (
   updateChannel: "latest" | "nightly",
 ) {
   const env = yield* Config.all({
+    updateUrl: Config.String("T3CODE_DESKTOP_UPDATE_URL").pipe(Config.option),
     updateRepository: Config.String("T3CODE_DESKTOP_UPDATE_REPOSITORY").pipe(Config.option),
     githubRepository: Config.String("GITHUB_REPOSITORY").pipe(Config.option),
   });
+  const rawUrl = Option.getOrUndefined(env.updateUrl)?.trim();
+  if (rawUrl) {
+    const parsedUrl = yield* decodeDesktopUpdateUrl(rawUrl).pipe(
+      Effect.mapError(() => new InvalidDesktopUpdateUrlError({ url: rawUrl })),
+    );
+    if (
+      !/^https?:\/\//iu.test(rawUrl) ||
+      (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") ||
+      !parsedUrl.hostname
+    ) {
+      return yield* new InvalidDesktopUpdateUrlError({ url: rawUrl });
+    }
+    return {
+      provider: "generic",
+      url: rawUrl,
+      useMultipleRangeRequest: false,
+      ...(updateChannel === "nightly" ? { channel: "nightly" as const } : {}),
+    };
+  }
+
   const rawRepo = (
     Option.getOrUndefined(env.updateRepository)?.trim() ||
     Option.getOrUndefined(env.githubRepository)?.trim() ||
